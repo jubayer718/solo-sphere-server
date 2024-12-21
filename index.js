@@ -83,13 +83,52 @@ async function run() {
       res.send(result)
     })
 
+    // // get all bidsData for a specific user
+    // app.get('/bids-data/:email', async (req, res) => {
+    //   const email = req.params.email;
+    //   console.log(email);
+    //   const query = {
+    //     buyer:email,
+    //   };
+    //   const result = await bidsCollection.find(query).toArray();
+    //   res.send(result)
+    // })
 
+    // update bid status
+    app.patch('/update-bid-status/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const {status} = req.body;
+      const update = {
+        $set:{
+          status
+        }
+      }
+      const result = await bidsCollection.updateOne(filter, update);
+      res.send(result)
+    })
+    // get data from bidCollection a specific user
+    app.get('/bids/:email', async (req, res) => {
+      const isBuyer = req.query.buyer;
+      const email = req.params.email;
+
+     
+      let query = {};
+      if (isBuyer) {
+        query.buyer=email
+      } else {
+        query.email=email
+      }
+    
+      const result = await bidsCollection.find(query).toArray();
+      res.send(result);
+    })
 
     // save bid data in db
     app.post('/add-bid', async (req, res) => {
       const bidData = req.body;
       // 0. if a user place a bid he can't not again bid
-      const query = { email: bidData.email, jobId: bidData.jobId };
+      const query = { email: bidData?.email, jobId: bidData?.jobId };
       const alReadyExist = await bidsCollection.findOne(query);
       console.log('already existData', alReadyExist);
       if (alReadyExist) return res.status(400).send('you all ready bid this job')
