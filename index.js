@@ -1,14 +1,19 @@
 const express = require('express')
 const cors = require('cors')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
-require('dotenv').config()
+require('dotenv').config();
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 
 const port = process.env.PORT || 9000
 const app = express()
-
-app.use(cors())
+const corsOptions = {
+  origin: ['http://localhost:5173'],
+  credentials: true,
+}
+app.use(cors(corsOptions))
 app.use(express.json())
-
+app.use(cookieParser())
 
 // this uri is shakil vai
 // const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@main.yolij.mongodb.net/?retryWrites=true&w=majority&appName=Main`
@@ -25,12 +30,47 @@ const client = new MongoClient(uri, {
   },
 })
 
+// middleWere
+const verifyToken = (req, res, next) => {
+  const token = req.cookies?.token;
+  if (!token) { return res.status(401).send({ message: 'un authorized access' }) };
+  jwt.verify(token, process.env.SECRET_KEY, (err, decoded) => {
+    if (err) { return res.status(401).send({ message: 'un authorized access' }) };
+    req.user = decoded;
+  })
+  // console.log(token);
+  next()
+}
+
 async function run() {
   try {
+    // generate jwt
+
+    app.post('/jwt', async (req, res) => {
+      const email = req.body;
+      const token = jwt.sign(email, process.env.SECRET_KEY, { expiresIn: '10h' })
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
+      }).send({success:true})
+    })
+    // remove token from browser
+    app.get('/logOut', async (req, res) => {
+      res.
+        clearCookie('token', {
+          maxAge: 0,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
+      }).send({success:true})
+    })
+    
     // const db = client.db('solo-db')
     // const jobsCollection = db.collection('jobs')
     const jobsCollection = client.db('solo-db').collection('jobs')
     const bidsCollection=client.db('solo-db').collection('bids')
+
+
     // save a jobData in db
     app.post('/add-job', async (req, res) => {
       const jobData = req.body
@@ -46,8 +86,10 @@ async function run() {
     })
 
     // get all jobs posted by a specific user
-    app.get('/jobs/:email', async (req, res) => {
+    app.get('/jobs/:email', verifyToken, async (req, res) => {
+      const decodedEmail = req.user?.email;
       const email = req.params.email
+    if(decodedEmail!==email){ return res.status(401).send({ message: 'un authorized access' }) };
       const query = { 'buyer.email': email }
       const result = await jobsCollection.find(query).toArray()
       res.send(result)
@@ -83,16 +125,37 @@ async function run() {
       res.send(result)
     })
 
-    // // get all bidsData for a specific user
-    // app.get('/bids-data/:email', async (req, res) => {
-    //   const email = req.params.email;
-    //   console.log(email);
-    //   const query = {
-    //     buyer:email,
-    //   };
-    //   const result = await bidsCollection.find(query).toArray();
-    //   res.send(result)
-    // })
+    // get all bidsData for a specific user
+    app.get('/bids-data/:email', async (req, res) => {
+      const email = req.params.email;
+      console.log(email);
+      const query = {
+        buyer:email,
+      };
+      const result = await bidsCollection.find(query).toArray();
+      res.send(result)
+    })
+
+
+
+    // get all data 
+    app.get('/all-jobs', async (req, res) => {
+      const filter = req.query.filter;
+      const sort = req.query.sort;
+      const search = req.query.search;
+      let options={}
+      if (sort) options = { sort: { deadline: sort === 'asc' ? 1 : -1 } };
+      let query = {
+        title: {
+          $regex:search ,
+          $options: 'i'
+      }};
+      if (filter) query.category = filter;
+      const result = await jobsCollection.find(query,options).toArray();
+      res.send(result)
+    })
+
+
 
     // update bid status
     app.patch('/update-bid-status/:id', async (req, res) => {
